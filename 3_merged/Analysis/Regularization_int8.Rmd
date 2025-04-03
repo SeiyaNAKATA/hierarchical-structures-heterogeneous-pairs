@@ -1,0 +1,185 @@
+---
+title: "Regularization"
+author: "Seiya"
+date: "`r format(Sys.time(), '%Y/%m/%d')`"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: false
+    toc_depth: 2
+    number_sections: no
+    theme: flatly
+    highlight: textmate
+    df_print: "paged"
+    fig_caption: yes
+    fig_width: 8
+    fig_height: 4
+    md_extensions: -ascii_identifiers
+    keep_md: yes
+    dev: png
+editor_options: 
+  chunk_output_type: inline
+  markdown:
+    wrap: 72
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, comment="", warning=FALSE, message=FALSE, fig.align="center", cache=T, tidy=F, fig.pos = 'H', dpi = 400)
+knitr::set_alias(fh="fig.height", fw="fig.width", fc="fig.cap")
+#knitr::opts_chunk$set(class.source = "fold-show")
+
+library(tidyverse)
+library(DT)
+library(lmerTest)
+library(emmeans)
+library(merTools)
+library(betareg)
+library(ggplot2)
+library(stringdist)
+
+my_theme <- theme(axis.text = element_text(size = 20, family="Arial"),
+                  axis.title = element_text(size = 20, family="Arial"),
+                  panel.grid.major = element_blank(),
+                  panel.grid.minor = element_blank(),
+                  panel.background = element_blank(),
+                  axis.line=element_line(colour = "black"),
+                  axis.ticks=element_line(colour = "black"),
+                  )
+theme_set(my_theme)
+```
+
+
+```{r}
+# define variables
+num_sequences <- 2 # number of sequences
+size_sets <- 8 # Number of trials included in one set
+num_pairs <- 71 # number of pairs
+condition <- 3
+# 1 -> Adult-pair
+# 2 -> Child-pair
+# 3 -> Adult-Child
+len_sequence <- 13 # the length of sequence
+
+num_trial <- num_sequences*size_sets #number of trials 14*4=56
+```
+
+```{r}
+df <- read.csv("../Hierarchy_cond3.csv", header = T)
+number <- (size_sets*num_sequences+num_sequences)*2*num_pairs
+```
+
+
+```{r}
+df_regular <- read.csv("../df_regular.csv", header = T)
+df_regular$pair_ID <- as.factor(df_regular$pair_ID)
+df_regular$condition <- as.factor(df_regular$condition)
+```
+
+
+```{r}
+regular.withinset.byindi <- group_by(df_regular, condition,pair_ID, within_trial) %>% 
+  summarise_at(vars(regularization), list(mean = ~mean(.), 
+                     sd = ~sd(.), 
+                     se = ~sd(.)/sqrt(length(.))))
+
+regular.withinset.byindi$condition <- as.factor(regular.withinset.byindi$condition)
+
+```
+
+```{r}
+regular.withinset <- group_by(df_regular, within_trial) %>% 
+  summarise_at(vars(regularization), list(mean = ~mean(.), 
+                     sd = ~sd(.), 
+                     se = ~sd(.)/sqrt(length(.))))
+```
+
+```{r}
+regular.withinset.bycond <- group_by(df_regular, condition, within_trial) %>% 
+  summarise_at(vars(regularization), list(mean = ~mean(.), 
+                     sd = ~sd(.), 
+                     se = ~sd(.)/sqrt(length(.))))
+regular.withinset.bycond$condition <- as.factor(regular.withinset.bycond$condition)
+
+```
+
+
+```{r}
+regular.withinset.byindi <- group_by(df_regular, condition,pair_ID, within_trial) %>% 
+  summarise_at(vars(regularization), list(mean = ~mean(.), 
+                     sd = ~sd(.), 
+                     se = ~sd(.)/sqrt(length(.))))
+
+regular.withinset.byindi$condition <- as.factor(regular.withinset.byindi$condition)
+
+```
+
+```{r}
+regular.withinset <- group_by(df_regular, within_trial) %>% 
+  summarise_at(vars(regularization), list(mean = ~mean(.), 
+                     sd = ~sd(.), 
+                     se = ~sd(.)/sqrt(length(.))))
+```
+
+```{r}
+regular.withinset.bycond <- group_by(df_regular, condition, within_trial) %>% 
+  summarise_at(vars(regularization), list(mean = ~mean(.), 
+                     sd = ~sd(.), 
+                     se = ~sd(.)/sqrt(length(.))))
+regular.withinset.bycond$condition <- as.factor(regular.withinset.bycond$condition)
+
+```
+
+# Analysis (linear regression)
+
+```{r}
+regular.withinset
+regular.withinset.bycond
+regular.withinset.byindi
+```
+
+## Plot data
+
+```{r}
+# plot graph
+ggplot(data = subset(subset(regular.withinset.bycond,within_trial>=2)), aes(x = within_trial, y = mean, color = condition)) +
+  geom_errorbar(aes(ymin = mean - se, ymax = mean + se),width = .1, color = "gray") +
+  geom_line() +
+  labs(color = "condition") +
+  scale_color_hue(name = "condition", labels = c("1" = "Adults", "2" ="Children", "3"="Adult-Child") ) +
+  theme(legend.position = c(0.02, 1.00), legend.justification = c(0,1)) +
+  #guides(color = guide_legend(nrow = 2))  +
+  xlab("Trial") + 
+  ylab("Regularization") + 
+  ylim(0.02, 1.00)
+```
+
+## Fitting to single regression
+
+$$Regularization = \alpha + \beta_1 \cdot trial + \beta_2 \cdot condition$$
+
+
+```{r}
+## dependent：Regularization
+## independent：within_trial, condition
+## random intercept：pair_ID
+fit1 <- lmer(regularization~within_trial+condition  + (1|pair_ID), data = df_regular)
+summary(fit1)
+```
+
+$$Regularization = \alpha + \beta_1 \cdot trial + \beta_2 \cdot condition + \beta_1 \cdot \beta2$$
+
+```{r}
+## dependent：Regularization
+## independent：within_trial, condition, interaction
+## random intercept：pair_ID
+fit1.1 <- lmer(regularization~within_trial+condition + within_trial*condition + (1|pair_ID), data = df_regular)
+summary(fit1.1)
+```
+
+
+```{r}
+sessionInfo()
+```

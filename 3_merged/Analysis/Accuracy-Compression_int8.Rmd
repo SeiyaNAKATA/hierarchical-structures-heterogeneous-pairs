@@ -1,0 +1,205 @@
+---
+title: "Accuracy and Compression_ratio"
+author: "Seiya"
+date: "`r format(Sys.time(), '%Y/%m/%d')`"
+output:
+  html_document:
+    code_folding: hide
+    toc: yes
+    toc_float:
+      collapsed: false
+    toc_depth: 2
+    number_sections: no
+    theme: flatly
+    highlight: textmate
+    df_print: "paged"
+    fig_caption: yes
+    fig_width: 8
+    fig_height: 8
+    md_extensions: -ascii_identifiers
+    keep_md: yes
+    dev: png
+editor_options: 
+  chunk_output_type: inline
+  markdown:
+    wrap: 72
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo=TRUE, comment="", warning=FALSE, message=FALSE, fig.align="center", cache=T, tidy=F, fig.pos = 'H', dpi = 400)
+knitr::set_alias(fh="fig.height", fw="fig.width", fc="fig.cap")
+#knitr::opts_chunk$set(class.source = "fold-show")
+
+library(tidyverse)
+library(DT)
+library(lmerTest)
+library(emmeans)
+library(merTools)
+library(betareg)
+library(ggplot2)
+library(stringdist)
+
+my_theme <- theme(axis.text = element_text(size = 20, family="Arial"),
+                  axis.title = element_text(size = 20, family="Arial"),
+                  panel.grid.major = element_blank(),
+                  panel.grid.minor = element_blank(),
+                  panel.background = element_blank(),
+                  axis.line=element_line(colour = "black"),
+                  axis.ticks=element_line(colour = "black"),
+                  )
+theme_set(my_theme)
+```
+
+```{r}
+# define variables
+num_sequences <- 2 # number of sequences
+size_sets <- 8 # Number of trials included in one set
+num_pairs <- 71 # number of pairs
+condition <- 3
+# 1 -> Adult-pair
+# 2 -> Child-pair
+# 3 -> Adult-Child
+len_sequence <- 13 # the length of sequence
+
+num_trial <- num_sequences*size_sets
+```
+
+
+```{r}
+dir <- "../Hierarchy_condX.csv"
+dir <- gsub("X",as.character(condition), dir)
+df <- read.csv(dir, header = T)
+#df$generation <- as.factor(df$generation)
+df$pair_ID <- as.factor(df$pair_ID)
+df$age_f <- as.factor(df$age)
+df$condition <- as.factor(df$condition)
+
+number <- (size_sets*num_sequences+num_sequences)*2*num_pairs
+```
+
+
+
+```{r, eval=FALSE}
+subset(df, trial==1&individual_ID==0) %>% count(condition)
+# condition  n
+#         1 19
+#         2 26
+#         3 26
+
+demographic <- group_by(subset(df, trial==1), condition) %>% 
+  summarise_at(vars(age), list(mean = ~mean(.), 
+                     sd = ~sd(.), 
+                     se = ~sd(.)/sqrt(length(.))))
+
+# condition  mean    sd    se
+# 1         40.9   6.71 1.09 
+# 2          8.25  1.66 0.230
+# 3         25.3  18.3  2.53 
+
+df <- df %>%
+  group_by(pair_ID) %>%
+  mutate(individual_ID = ifelse(age == min(age) & n_distinct(age) == 1,
+                                ifelse(row_number() == 1, 0, 1),  # 行番号で区別
+                                ifelse(age == min(age), 0, 1)))
+
+```
+
+```{r, cache=FALSE}
+datatable(df)
+summary(df)
+```
+
+
+# Accuracy all
+
+* Use the data of hierarchy only at trial 8
+* Calculate mean accuracy among all trials
+
+
+## Plot data
+
+```{r}
+df.no0 <- subset(df, within_trial!=0)
+accuracy.byindi <- group_by(df.no0, pair_ID, individual_ID) %>% 
+  summarise_at(vars(accuracy), list(mean = ~mean(.), 
+                     sd = ~sd(.), 
+                     se = ~sd(.)/sqrt(length(.))))
+accuracy_compress8 <- subset(accuracy.byindi, individual_ID==0)[,"pair_ID"]
+accuracy_compress8["accuracy0"] <- subset(accuracy.byindi, individual_ID==0)[,"mean"]
+accuracy_compress8["accuracy1"] <- subset(accuracy.byindi, individual_ID==1)[,"mean"]
+
+pairsim.t8.bypair <- group_by(subset(df.no0,within_trial==8), pair_ID, ) %>% 
+  summarise_at(vars(Compression_ratio), list(mean = ~mean(.), 
+                     sd = ~sd(.), 
+                     se = ~sd(.)/sqrt(length(.))))
+accuracy_compress8["Compression_ratio"] <- pairsim.t8.bypair$mean
+
+accuracy_compress8$condition <- subset(df.no0,trial==1&individual_ID==0)$condition
+
+middle <- mean(accuracy_compress8$Compression_ratio)
+cat("reference line of Compression_ratio:", middle)
+
+```
+
+```{r}
+# plot graph
+set.seed(0)
+ggplot(data = accuracy_compress8, aes(x = accuracy0, y = accuracy1, color = Compression_ratio, fill = Compression_ratio, shape = factor(condition))) +
+  geom_point(size = 3.0,
+             position = position_jitterdodge(jitter.width = 0.1, jitter.height = 0.1)) +
+  labs(x = "Accuracy of individual 0", y = "Accuracy of individual 1") +
+  xlim(0.00, 1.00) +
+  ylim(0.00, 1.00) +
+  #theme(legend.position = c(0.05, 1.00), legend.justification = c(0,1)) +
+  scale_shape_manual(values = c(21, 22, 23), labels = c("Adults", "Children", "Adult-Child")) +
+  scale_color_gradient2(midpoint = middle, low = "blue", mid = "gray", high = "red", limits = c(0.0, 1.0)) +
+  scale_fill_gradient2(midpoint = middle, low = "blue", mid = "gray", high = "red", limits = c(0.0, 1.0)) +
+  guides(fill = guide_colorbar(title = "Compression_ratio"), 
+         color = guide_colorbar(title = "Compression_ratio"), 
+         shape = guide_legend(title = "Condition"))
+
+ggsave("0_Figures/Accuracy_compress8.png", width = 8, height = 8, dpi=400)
+
+```
+
+## Difference of accuracy
+
+* To integrate accuracy of two individuals, calculate the difference of them and enter the difference as independent variable
+
+$$Compression_ratio ~ \alpha + A_{dif} \beta$$
+
+
+```{r}
+accuracy_compress8$diff <- abs(accuracy_compress8$accuracy0 - accuracy_compress8$accuracy1)
+```
+
+```{r}
+# plot graph
+set.seed(0)
+ggplot(data=accuracy_compress8, aes(x = diff, y = Compression_ratio, color = condition)) +
+  geom_point(size=3.0
+             , position = position_jitter(width = 0.02, height = 0.02)
+             ) +
+  xlim(0.00,0.30) +
+  ylim(0.00, 1.00) +
+  xlab("Difference of accuracy") +
+  ylab("Compression ratio at trial 8") +
+  labs(color = "condition") +
+  scale_color_hue(name = "condition", labels = c("1" = "Adults", "2" ="Children", "3"="Adult-Child") )
+ggsave("0_Figures/DiffAccuracy_compress8.png", width = 8, height = 8, dpi=400)
+```
+
+
+```{r}
+## dependent：Compression_ratio (trial 8)
+## independent：Accuracy_diff
+fit1_diff <- lm(Compression_ratio ~ diff, data = accuracy_compress8)
+summary(fit1_diff)
+
+```
+
+# Info
+
+```{r}
+sessionInfo()
+```
