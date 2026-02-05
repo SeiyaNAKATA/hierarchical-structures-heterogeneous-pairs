@@ -107,6 +107,7 @@ df['within_trial'] = [i+1 for i in range(num_sets)]*num_sequences*2*num_group
 df = pd.concat([df,df_seed]).reset_index(drop=True)
 df = df.reset_index(drop=True)
 df["generation"] = df["age"].map((lambda x: "Adult" if x >= 18 else "Child"))
+#df.to_csv(f"3_merged/Accuracy_cond{condition}.csv",index=False)
 
 
 
@@ -182,7 +183,7 @@ def Compression_ratio(data):
             with gzip.open(f"Compress/{fname}.gz", "wb") as f_out:
                 shutil.copyfileobj(f_in, f_out)
     #get file size
-    after = os.path.getsize(f"Compress/{fname}.gz") - (len(fname)+24)#must be 44, Remove the extra data size for unzip
+    after = os.path.getsize(f"Compress/{fname}.gz") - (len(fname)+24)#must be 41, Remove the extra data size for unzip
     before = os.path.getsize(f"Compress/{fname}")
     #print(after)
     #print(before)
@@ -192,6 +193,7 @@ def Compression_ratio(data):
 
 df_compression = df.apply(Compression_ratio,axis=1).reset_index(drop=True)
 df["Compression_ratio"] = df_compression
+#df.to_csv(f"3_merged/Compress_cond{condition}.csv",index=False)
 
 
 #%%
@@ -208,15 +210,15 @@ def SequiturHierarchy(sequence, rule_utility=True):
               num_chunks -> int (number of chunks in final sequence, excluding letters)
     """
     S = ""
-    symbpl_number = 0
+    symbol_number = 0
     Rules = {}  # {Digram:Rule}
     depths = {}  # Store depth for each rule
     chunk_sizes = {}  # Store the size of each chunk
     
     for symbol in sequence:
-        symbpl_number += 1
+        symbol_number += 1
         S += symbol
-        if symbpl_number >= 4:  # don't check digram until 4 characters
+        if symbol_number >= 4:  # don't check digram until 4 characters
             while True:
                 Digram = S[-2:]
                 if Digram in S[:-2]:
@@ -293,27 +295,8 @@ def shannon_entropy(s):
     return entropy_value
 
 df_entropy = df["sequence"].apply(shannon_entropy).reset_index(drop=True)
-df["Entropy"] = df_entropy.astype('object')
+df["Entropy"] = df_entropy
 
-df["age_f"] = df["age"]
-
-def assign_value(generation):
-    if all(gen == "Adult" for gen in generation):
-        return 1  # Adult-Adult
-    elif all(gen == "Child" for gen in generation):
-        return 2  # Child-Child
-    else:
-        return 3  # Adult-Child
-
-df = df.drop(columns=["condition"], errors="ignore")
-
-result = (
-    df.groupby("pair_ID")["generation"]
-    .apply(assign_value)
-    .reset_index(name="condition")
-)
-
-df = df.merge(result, on="pair_ID", how="left")
 df.to_csv(f"3_merged/Hierarchy_cond{condition}.csv",index=False)
 
 
